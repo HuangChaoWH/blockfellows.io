@@ -120,6 +120,7 @@ Why?
 - A contract can have exactly one unnamed function. This function cannot have arguments and cannot return anything.
 - The function is executed on a call to the contract if none of the other functions match the given function identifier (or if no data was supplied at all)
 - Even though the fallback function cannot have arguments, one can still use msg.data to retrieve any payload supplied with the call
+- To receive ether for this function, we must mark it as payable
 
 
 # (5) DELETEGATECALL
@@ -454,3 +455,17 @@ python oyente.py -s <contract filename>
 - Check this: https://etherscan.io/address/0xb3764761e297d6f121e79c32a65829cd1ddb4d32#internaltx
 - Three ICO projects: Edgeless casino, Swarm City and aeternity, were using parity client to manage funds raised during ICO. This was about 30m+ USD. All stolen.
 - See code comparision, that fixed this patch: https://github.com/paritytech/parity-ethereum/pull/6102/files
+
+
+## What happened?
+- `initWallet` didn't have a guard modifier i.e. it doesn't check if the wallet has been initalized or not.
+- `walletContract` is created by `walletLibrary`. This means the wallet can call `initWallet`. But since the function was not declared internal, any derived function can call `initWallet`.
+- `delegatecall` was used to call `initWallet`
+- Bonus bad coding: in the wallet, fallback function is used to catch all the `delegatecall`. 
+
+## Lets design the attack
+
+- Attacker calls `wallet.initWallet(attacker)`, wallets fallback function is triggered.
+- Wallets fallback function then triggers `delegatecall`. This consist of the function selector for `initWallet(attacker)`
+- WalletLibrary recives the call data, it finds `initWallet` and runs it for the attacker. This sets the attacker as the wallet owner.
+
