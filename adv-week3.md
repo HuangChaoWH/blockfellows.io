@@ -425,3 +425,29 @@ python oyente.py -s <contract filename>
 
 - https://github.com/raineorshine/solgraph
 - Generates a DOT graph that visualizes function control flow of a Solidity contract and highlights potential security vulnerabilities.
+
+
+# (10) DAO was hacked (Case study)- The birth of ETH Classic
+
+- DAO is a Dentralised Autonomous Organisation.
+  - Raised Ether, give tokens that allow you to vote on which projects to fund.
+- 3.6m ETHER was stolen (about 70m USD) 
+- It was a Reentrency Attack
+
+## (10.1) How did the attack happened?
+
+- Attacker was able to ask the smart contract (DAO) to give the ether back multiple times before the smart contract could update its own balance.
+- The design had two functions
+  - SplitDAO i.e. withdrawRewardFor, allowing you to withdraw 30X DAO tokens, as you have access to it.
+  - Recurrsive SplitDAO Strategy i.e. run this function multiple times.
+
+## (10.2) Hacked, now what?
+
+- A new hard fork of new ETH was launched.
+- The transactions related to DAO were reverted and all transactions post DAO are on the chain.
+- Rumours have it the hackers were only able to take 1/3 DAO tokens as they ran out of GAS.
+
+# (11) 
+
+
+
