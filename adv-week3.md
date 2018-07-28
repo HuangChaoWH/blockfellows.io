@@ -447,7 +447,10 @@ python oyente.py -s <contract filename>
 - The transactions related to DAO were reverted and all transactions post DAO are on the chain.
 - Rumours have it the hackers were only able to take 1/3 DAO tokens as they ran out of GAS.
 
-# (11) 
+# (11) Parity-Ethereum v1.5 Vunerability
 
-
-
+- Check Parity, the ETH Client: https://github.com/paritytech/parity-ethereum
+- In ETH, we deploy wallet contracts and store the money in that contract account (unlike bitcoin)
+- Check this: https://etherscan.io/address/0xb3764761e297d6f121e79c32a65829cd1ddb4d32#internaltx
+- Three ICO projects: Edgeless casino, Swarm City and aeternity, were using parity client to manage funds raised during ICO. This was about 30m+ USD. All stolen.
+- See code comparision, that fixed this patch: https://github.com/paritytech/parity-ethereum/pull/6102/files
