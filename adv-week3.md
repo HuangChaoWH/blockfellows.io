@@ -156,9 +156,9 @@ Alice.
 
 # (7) Attack scenarios
 
-## Parity attack: The vulnerable contract’s function implemented delegatecall and a function from another contract that could modify ownership was left public. That allowed an attacker to craft the msg.data field to call the vulnerable function.
+## (7.1) Parity attack: The vulnerable contract’s function implemented delegatecall and a function from another contract that could modify ownership was left public. That allowed an attacker to craft the msg.data field to call the vulnerable function.
 
-## DAO Attack: Solidity’s call function when called with value forwards all the gas it received.
+## (7.2) DAO Attack: Solidity’s call function when called with value forwards all the gas it received.
 
 "In simple words, it’s like the bank teller doesn’t change your balance until she has given you all the money you requested. Can I withdraw $500? Wait, before that, can I withdraw $500? And so on.
 The smart contracts as designed only check you have $500 at the beginning, once, and allow themselves to be interrupted.”
@@ -178,9 +178,10 @@ function withdraw(uint _amount) public { if(balances[msg.sender] >= _amount) {
   -  Use mutexes to mitigate race conditions
   -  use `require(msg.sender.transfer(_value))`. [More here](https://medium.com/blockchannel/the-use-of-revert-assert-and-require-in-solidity-and-the-new-revert-opcode-in-the-evm-1a3a7990e06e)
 
-## Solidity selfdestruct
+## (7.3) Solidity selfdestruct
 - It renders the contract useless, effectively deleting the bytecode at that address
 - It sends all the contract’s funds to a target address
+- Never use a contract’s balance as a guard
 
 "Due to the throwing fallback function, normally the contract cannot receive ether. However, if a contract selfdestructs with this contract as a target, the fallback function does not get called.
 As a result this.balance becomes greater than 0, and thus the attacker can bypass the require statement in
@@ -197,8 +198,230 @@ pragma solidity 0.4.18; contract ForceEther {
  // throw if any ether is received
  function() payable {
    revert();
-} }
+} 
+}
+```
+## (7.4) DOS Attack to unsecured contracts
+- DOS (Denial of service):  interruption in an authorized user's access to a computer network, typically one caused with malicious intent.
+-In this case, an attacker’s contract could first claim leadership by sending enough ether to the insecure contract. Then, the transactions of another player who would attempt to claim leadership would throw.
+
+- Link: https://ethfiddle.com/jJNl3ILO-Z
+```
+//Ponzi scheme contract
+pragma solidity ^0.4.18;
+contract CallToTheUnknown {
+  // Highest bidder becomes the Leader. 
+  // Vulnerable to DoS attack by an attacker contract which reverts all transactions to it.
+
+    address currentLeader;
+    uint highestBid;
+
+    function() payable {
+        require(msg.value > highestBid);
+        require(currentLeader.send(highestBid)); // Refund the old leader, if it fails then revert
+        currentLeader = msg.sender;
+        highestBid = msg.value;
+    }
+}
+
+contract Pwn {
+  // call become leader 
+  function becomeLeader(address _address, uint bidAmount) {
+    _address.call.value(bidAmount);
+  }
+    
+  // reverts anytime it receives ether, thus cancelling out the change of the leader
+  function() payable {
+    revert();
+  }
+}
 ```
 
 
+## (7.5) Shortest address attack (exchange get hacked!)
 
+- Good read: https://vessenes.com/the-erc20-short-address-attack-explained/
+- Allows an attacker to abuse the transfer function of an ERC20 (standard token contract) to withdraw a larger amount than he is allowed to.
+- Suppose we have an exchange with a wallet of 1000 tokens (ERC-20 spec) and a user with a balance of 32 tokens on that exchange’s wallet.
+  - User will go to the exchange, click the token’s withdraw button and input their address without the trailing zeroes (exchange does not perform input validation and let’s the txn go through despite invalid address length)
+  - User address: 0x12345600 )(trainling zeros)
+
+- Lets explain this:
+  - The server taking in user data allowed an Ethereum address that was less than 20 bytes: usually an Ethereum address looks like 0x1234567890123456789012345678901234567800
+  - Lets leave off the trailing zeros: 0x12345678901234567890123456789012345678, where one hex byte equal to 0.
+  - The transfer function arguments get shifted over one byte from the point that a short argument was given, and this shifts over the number of tokens transferred
+
+- Lets do an attack pattern
+  - Let's say I have 1,000 tokens and would like 256,000 -- what do I do?
+    - Generate an Ethereum address with a trailing 0. Ethereum addresses are generated pretty much randomly, so on average this will take 256 tries -- almost no time at all.
+    - Find an exchange wallet with 256,000 tokens.
+    - Send 1,000 tokens to this exchange wallet, crediting my account internally (off chain) with 1,000.
+    - Request a withdrawal of 1,000 tokens using my generated address. Critically I will leave off my last "0" byte.
+    - If the server does not validate the address, it will "pack" everything together and move the amount, the final argument, over one byte, yielding a 67 byte argument to the transfer function when 68 is what's needed.
+    - All these arguments are passed around under the hood in the msg.data portion of a call. msg.data has three components -- the function signature -- a hash of the name of the function, then the two arguments, address and amount. In ERC20, amount is a uint256, so it has lots of leading zeros.
+    - What happens in this attack is that one byte of leading zeros is taken from the amount, and given to the shortened address. This leaves us with the same address as we started with, so tokens sent here will be transferable.
+    - When the parser is getting to the end of its bytes, it has an underflow -- there aren't enough bytes left to make a uint256 -- so it just adds zeros to the end and calls it a day. This means you've multiplied your amount by 1<<8 or 256, and crucially after the exchange has checked your balance on their internal ledger.
+    - You could even probably get some plausible deniability if you needed -- "Oops, I just copied it over and missed the 0, sorry!"
+
+
+- How to fix:
+  - Throw if msg.data has invalid size
+  - Exchanges must perform input validation
+
+## (7.6) Randomness is difficult to achieve 
+
+
+- Great article: https://ethereum.stackexchange.com/questions/191/how-can-i-securely-generate-a-random-number-in-my-smart-contract
+- Everything on the EVM is deterministic (A deterministic model will thus always produce the same output from a given starting condition or initial state)
+- Fix: See RANDAO and BLOCK.HASH
+- link: https://github.com/randao/randao
+- What is blockhash: https://ethereum.stackexchange.com/questions/2100/what-is-a-block-hash
+- Everywhere blockhash cannot be used: https://ethereum.stackexchange.com/questions/419/when-can-blockhash-be-safely-used-for-a-random-number-when-would-it-be-unsafe
+
+
+# (8) Best practices
+
+- Don’t write fancy code
+- Use audited and tested code
+- Write as many unit tests as possible
+- Prepare for failure - at any moment, in any contract or method
+- Rollout carefully - bug bounties before ICO
+- Keep contracts simple - more complexity = more attack vectors
+- Keep updating with software and community
+- Beware of blockchain properties: public vs. private, .send() vs. .call()
+
+# (9) Design Patterns
+
+## (9.1) Avoid External Calls
+
+- Avoid a call from one contract to another untrusted contract or account.
+- delegatecall, callcode, call
+- Types of attacks: The Dao hack, The Parity multisignature wallet hack
+- Use `.send()` and `.transfer()` over `.call.value()`
+
+### `.call.value()`
+
+- `somaddress.call.value(ether)()`
+- The executed code is is given all the gas making it unsafe
+
+### `.send()`
+
+- `somaddress.send(ether)`
+- The executed code is is given limited gas. If it doesn't have enough, it will fail with a boolean.
+
+### `.transfer()`
+
+- `somaddress.transfer(ether)`
+- Equivalent to `if(!someaddress.send(ether)) throw;`
+
+
+## (9.2) revert is the new throw
+
+- revert() returns unused gas
+- throw() will continue to consume all gas
+
+## (9.3) assert and require are the king
+
+- `require(condition)` for input validation
+- `assert(condition)` for internal error check
+
+## (9.4) pragma declarations
+
+- BAD:
+ `pragma solidity ^0.4.18;`
+
+- GOOD:
+ `pragma solidity 0.4.18;`
+
+## (9.5) Round all your intergers with divison
+
+- BAD:
+```
+uint x = 5 / 2; // Result is 2, all integer division rounds DOWN to the nearest integer
+```
+
+- GOOD:
+
+```
+uint multiplier = 10;
+uint x = (5 * multiplier) / 2;
+uint numerator = 5;
+uint denominator = 2;
+```
+
+## (9.6) How to resolve privacy when all data is public?
+
+- Gread read: https://blog.ethereum.org/2016/01/15/privacy-on-the-blockchain/
+- Keep user roles to keep access rights.
+
+
+## (9.7) Offline contracts shouldn't be paid
+
+- Never make a payout untill both contracts talking to each other make the move.
+
+## (9.8) Audit and Quality control
+
+- Use Test Coverage
+
+### (9.8.1) Code analysis
+- (1) Use solc: https://solidity.readthedocs.io/en/v0.4.24/installing-solidity.html
+It has some good syntax quality check
+
+```
+npm install -g solc
+docker run ethereum/solc:stable solc --version
+```
+
+- (2) securify.ch (https://securify.ch/)
+Lets use the underflow example
+```
+pragma solidity 0.4.24;
+
+// Contract to test unsigned integer underflows and overflows
+// note: uint in solidity is an alias for uint256
+
+// Guidelines: Press "Create" to the right, then check the values of max and zero by clicking "Call"
+// Then, call overflow and underflow and check the values of max and zero again
+
+contract OverflowUnderFlow {
+    uint public zero = 0;
+    uint public max = 2**256-1;
+    
+    // zero will end up at 2**256-1
+    function underflow() public {
+        zero -= 1;
+    }
+    // max will end up at 0
+    function overflow() public {
+        max += 1;
+    }
+}
+```
+
+- (3) Remix (https://remix.ethereum.org/#optimize=false&version=soljson-v0.4.24+commit.e67f0147.js)
+Lets use the underflow example for demo
+
+- (4) oyente (https://github.com/melonproject/oyente)
+
+```
+#evaluate a local solidity contract
+python oyente.py -s <contract filename>
+```
+
+### (9.8.2) Frameworks
+
+- Hydra (https://github.com/IC3Hydra/Hydra)
+- Porosity (https://github.com/comaeio/porosity)
+- Manticore (https://github.com/trailofbits/manticore/)
+- EthersPlay (https://github.com/trailofbits/ethersplay)
+
+### (9.8.3) OpenZeppelin
+
+- Link: https://github.com/OpenZeppelin/openzeppelin-solidity
+- A framework to build secure smart contracts on Ethereum
+- Design patterns: https://blog.zeppelin.solutions/onward-with-ethereum-smart-contract-security-97a827e47702
+
+### (9.8.4) Visualisation Tools (SOLGRAPH)
+
+- https://github.com/raineorshine/solgraph
+- Generates a DOT graph that visualizes function control flow of a Solidity contract and highlights potential security vulnerabilities.
