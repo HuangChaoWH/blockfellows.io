@@ -105,7 +105,7 @@ contract OverflowUnderFlowSafe {
 }
 ```
 
-(3) VISIBILITY
+# (3) VISIBILITY
 - Keep your functions private or internal unless there is a need for outside interaction.
 
 Why?
@@ -115,15 +115,90 @@ Why?
 - Internal functions are a more relaxed version of private, where contracts that inherit from the parent are able to use the the function
 
 
+# (4) Fallback Function
+
+- A contract can have exactly one unnamed function. This function cannot have arguments and cannot return anything.
+- The function is executed on a call to the contract if none of the other functions match the given function identifier (or if no data was supplied at all)
+- Even though the fallback function cannot have arguments, one can still use msg.data to retrieve any payload supplied with the call
 
 
+# (5) DELETEGATECALL
 
+- delegatecall is identical to a message call (internal transaction) apart from the fact that the code at target address is executed in the context of the calling contract and msg.sender and msg.value do not change their values
+- A contract can dynamically load code from a different address at runtime with delegatecall
+- Very useful for implementing libraries and modularizing code But opens doors to vulnerabilities as your contract is allowing anyone to do whatever they
+want with their state
 
+```
+contract D {
+   uint public n;
+   address public sender;
+   function delegatecallSetN(address _e, uint _n) { 
+   	_e.delegatecall(bytes4(sha3(setN(uint256))), _n); /* D's storage is set, E is not modified */
+   	} 
+   }
+  contract E {
+   uint public n;
+   address public sender;
+   function setN(uint _n) {
+n = _n;
+     sender = msg.sender;
+   }
+}
+```
 
+# (6) DELETEGATECALL vs CALLCODE vs CALL
 
+- DELETEGATECALL: Delegatecall says “I’m a contract and I’m allowing (delegating) you to do whatever you want to my storage”. If Alice invokes Bob who does delegatecall to Charlie, the msg.sender in the delegatecall is
+Alice.
+- CALLCODE: If callcode was used the msg.sender would be Bob.
+- CALL: When contract D does a call on contract E, the code runs in the context of E: the storage of E is used.
 
+# (7) Attack scenarios
 
+## Parity attack: The vulnerable contract’s function implemented delegatecall and a function from another contract that could modify ownership was left public. That allowed an attacker to craft the msg.data field to call the vulnerable function.
 
+## DAO Attack: Solidity’s call function when called with value forwards all the gas it received.
+
+"In simple words, it’s like the bank teller doesn’t change your balance until she has given you all the money you requested. Can I withdraw $500? Wait, before that, can I withdraw $500? And so on.
+The smart contracts as designed only check you have $500 at the beginning, once, and allow themselves to be interrupted.”
+
+```
+//Lets reduce sender's balance
+function withdraw(uint _amount) public { if(balances[msg.sender] >= _amount) {
+                          if(msg.sender.call.value(_amount)()) {
+                            _amount;
+}
+                          balances[msg.sender] -= _amount;
+                        }
+}
+```
+- This can be prevented by using the following code patterns:
+  -  Reduce the sender’s balance before making the transfer of value
+  -  Use mutexes to mitigate race conditions
+  -  use `require(msg.sender.transfer(_value))`. [More here](https://medium.com/blockchannel/the-use-of-revert-assert-and-require-in-solidity-and-the-new-revert-opcode-in-the-evm-1a3a7990e06e)
+
+## Solidity selfdestruct
+- It renders the contract useless, effectively deleting the bytecode at that address
+- It sends all the contract’s funds to a target address
+
+"Due to the throwing fallback function, normally the contract cannot receive ether. However, if a contract selfdestructs with this contract as a target, the fallback function does not get called.
+As a result this.balance becomes greater than 0, and thus the attacker can bypass the require statement in
+onlyNonZeroBalance"
+
+```
+//Lets empty your balance, shall we!
+pragma solidity 0.4.18; contract ForceEther { 
+	bool youWin = false;
+	function onlyNonZeroBalance() { 
+		require(this.balance > 0); 
+		youWin = true;
+}
+ // throw if any ether is received
+ function() payable {
+   revert();
+} }
+```
 
 
 
